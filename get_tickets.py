@@ -1,31 +1,42 @@
-from splinter.browser import Browser
+from selenium import webdriver
 from time import sleep
 import smtplib
 from email.mime.text import MIMEText
-from config import get_stations
+import config
 
 
 class Buy_Tickets(object):
-    # 定义实例属性，初始化
-    def __init__(self, username, passwd, order, passengers, dtime, starts, ends,
-                 mail_host='', mail_user='', mail_pass='', from_e='', to_e='', title='', content=''):
+    def __init__(self,
+                 username,
+                 password,
+                 order_begin,
+                 order_end,
+                 passengers,
+                 dtime,
+                 starts,
+                 ends,
+                 business_allow=False,
+                 first_allow=False,
+                 mail_host='',
+                 mail_user='',
+                 mail_pass='',
+                 from_e='',
+                 to_e='',
+                 title='',
+                 content=''):
         self.username = username
-        self.passwd = passwd
-        # 车次，0代表所有车次，依次从上到下，1代表所有车次，依次类推
-        self.order = order
-        # 乘客名
+        self.password = password
+        self.order_begin = order_begin
+        self.order_end = order_end
         self.passengers = passengers
-        # 起始地和终点
         self.starts = starts
         self.ends = ends
-        # 日期
         self.dtime = dtime
-        # self.xb = xb
-        # self.pz = pz
+        self.business_allow = business_allow
+        self.first_allow = first_allow
         self.login_url = 'https://kyfw.12306.cn/otn/login/init'
         self.initMy_url = 'https://kyfw.12306.cn/otn/index/initMy12306'
         self.ticket_url = 'https://kyfw.12306.cn/otn/leftTicket/init'
-        self.driver_name = 'chrome'
         self.executable_path = 'chromedriver'
 
         # email setting
@@ -42,77 +53,81 @@ class Buy_Tickets(object):
 
     # 登录功能实现
     def login(self):
-        self.driver.visit(self.login_url)
-        self.driver.fill('loginUserDTO.user_name', self.username)
-        # sleep(1)
-        self.driver.fill('userDTO.password', self.passwd)
-        # sleep(1)
+        self.driver.get(self.login_url)
+        self.driver.find_element_by_id('username').send_keys(self.username)
+        self.driver.find_element_by_id('password').send_keys(self.password)
         print('请输入验证码...')
         while True:
-            if self.driver.url != self.initMy_url:
+            if self.driver.current_url != self.initMy_url:
                 sleep(1)
             else:
                 break
 
     # 买票功能实现
     def start_buy(self):
-        self.driver = Browser(driver_name=self.driver_name, executable_path=self.executable_path)
-        # 窗口大小的操作
-        self.driver.driver.set_window_size(700, 500)
+        self.driver = webdriver.Chrome(executable_path=self.executable_path)
         self.login()
-        self.driver.visit(self.ticket_url)
+        self.driver.get(self.ticket_url)
         try:
             print('开始购票...')
             # 加载查询信息
-            self.driver.cookies.add({"_jc_save_fromStation": self.starts})
-            self.driver.cookies.add({"_jc_save_toStation": self.ends})
-            self.driver.cookies.add({"_jc_save_fromDate": self.dtime})
-            self.driver.reload()
+            self.driver.add_cookie(
+                {"name": "_jc_save_fromStation", "value": self.starts})
+            self.driver.add_cookie(
+                {"name": "_jc_save_toStation", "value": self.ends})
+            self.driver.add_cookie(
+                {"name": "_jc_save_fromDate", "value": self.dtime})
+            self.driver.refresh()
             count = 0
-            if self.order != 0:
-                while self.driver.url == self.ticket_url:
-                    self.driver.find_by_text('查询').click()
-                    count += 1
-                    print('第%d次点击查询...' % count)
-                    try:
-                        self.driver.find_by_text('预订')[self.order - 1].click()
-                        sleep(1.5)
-                    except Exception as e:
-                        print(e)
-                        print('预订失败...')
-                        continue
-            else:
-                while self.driver.url == self.ticket_url:
-                    self.driver.find_by_text('查询').click()
-                    count += 1
-                    print('第%d次点击查询...' % count)
-                    try:
-                        for i in self.driver.find_by_text('预订'):
-                            i.click()
-                            sleep(1)
-                    except Exception as e:
-                        print(e)
-                        print('预订失败...')
-                        continue
+            while self.driver.current_url == self.ticket_url:
+                count += 1
+                print('第%d次点击查询...' % count)
+                try:
+                    self.driver.find_element_by_link_text('查询').click()
+                    sleep(1)
+                    table = self.driver.find_element_by_id('queryLeftTable')
+                    trs = table.find_elements_by_tag_name('tr')
+                    for index, tr in enumerate(trs):
+                        if index % 2 == 0:
+                            try:
+                                tds = tr.find_elements_by_tag_name('td')
+                                first_seat = tds[2]
+                                second_seat = tds[3]
+                                order = tr.find_element_by_class_name('no-br')
+                                train = tr.find_element_by_class_name('ticket-info')
+                                order.find_element_by_tag_name('a')
+                                train_time = train.find_element_by_class_name('cds')
+                                start_time = int(train_time.find_elements_by_tag_name('strong')[0].text.split(':')[0])
+                                if self.order_begin <= start_time <= self.order_end:
+                                    print(start_time)
+                                    print(self.business_allow, self.first_allow)
+                                    if self.business_allow:
+                                        order.find_element_by_tag_name('a').click()
+                                    elif not self.business_allow and self.first_allow and '无' not in first_seat.text:
+                                        order.find_element_by_tag_name('a').click()
+                                    elif not self.business_allow and not self.first_allow and '无' not in second_seat.text:
+                                        order.find_element_by_tag_name('a').click()
+                            except:
+                                continue
+
+                except Exception as e:
+                    sleep(1)
+                    print(e)
+                    print('预订失败...')
+                    continue
             print('开始预订...')
             sleep(1)
             print('开始选择用户...')
-            for p in self.passengers:
-
-                self.driver.find_by_text(p).last.click()
-                sleep(0.5)
-                if p[-1] == ')':
-                    self.driver.find_by_id('dialog_xsertcj_ok').click()
+            ul_passengers = self.driver.find_element_by_id('normal_passenger_id')
+            lis = ul_passengers.find_elements_by_tag_name('li')
+            for li in lis:
+                if li.text.strip() in self.passengers:
+                    li.find_element_by_tag_name('label').click()
             print('提交订单...')
-            # sleep(1)
-            # self.driver.find_by_text(self.pz).click()
-            # sleep(1)
-            # self.driver.find_by_text(self.xb).click()
-            # sleep(1)
-            self.driver.find_by_id('submitOrder_id').click()
-            sleep(2)
+            self.driver.find_element_by_id('submitOrder_id').click()
+            sleep(1)
             print('确认选座...')
-            self.driver.find_by_id('qr_submit_id').click()
+            self.driver.find_element_by_id('qr_submit_id').click()
             print('预订成功...')
             try:
                 smtpObj = smtplib.SMTP()
@@ -127,28 +142,20 @@ class Buy_Tickets(object):
 
 
 if __name__ == '__main__':
-    username = 'xxxx'  # 用户名
-    password = 'xxxxx'  # 密码
-    order = 2  # 车次选择，0代表所有车次
-    # 乘客名，比如passengers = ['丁小红', '丁小明']
-    # 学生票需注明，注明方式为：passengers = ['丁小红(学生)', '丁小明']
-    passengers = ['xxx']
-    dtime = '2018-02-22'  # 日期，格式为：'2018-01-20'
-
-    # 出发地(需填写cookie值)
-    starts = get_stations()['出发地']  # 鳌江
-    # 目的地(需填写cookie值)
-    ends = get_stations()['目的地']  # 杭州东
-
-    # xb =['硬座座']
-    # pz=['成人票']
-
-    mail_host = "smtp.163.com"  # SMTP服务器
-    mail_user = "xxxx@163.com"  # 邮箱用户名
-    mail_pass = "xxxxxx"  # 邮箱密码
-    from_e = 'xxxxx'  # 发件人邮箱(最好写全, 不然会失败)
-    to_e = 'xxxxx'  # 接收邮件，可设置为你的QQ邮箱或者其他邮箱
-    content = '当你收到这封邮件的时候，代表你神奇的爬虫帮你抢到了票'
-    title = '火车票事件'  # 邮件主题
-    Buy_Tickets(username, password, order, passengers, dtime, starts, ends, mail_host, mail_user, mail_pass, from_e,
-                to_e, title, content).start_buy()
+    Buy_Tickets(config.username,
+                config.password,
+                config.order_begin,
+                config.order_end,
+                config.passengers,
+                config.dtime,
+                config.starts,
+                config.ends,
+                config.business_allow,
+                config.first_allow,
+                config.mail_host,
+                config.mail_user,
+                config.mail_pass,
+                config.from_e,
+                config.to_e,
+                config.title,
+                config.content).start_buy()
